@@ -6,9 +6,13 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "db:seed": "tsx scripts/seed.ts"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
+    "bcryptjs": "^3.0.3",
     "clsx": "2.1.1",
     "framer-motion": "^12.42.2",
     "lucide-react": "^1.24.0",
@@ -22,8 +26,10 @@
     "@types/node": "22.19.17",
     "@types/react": "19.2.7",
     "@types/react-dom": "19.2.3",
+    "@vercel/node": "^5.10.2",
     "@vitejs/plugin-react": "5.1.1",
     "tailwindcss": "4.1.17",
+    "tsx": "^4.23.13",
     "typescript": "5.9.3",
     "vite": "7.3.2",
     "vite-plugin-singlefile": "2.3.0"
