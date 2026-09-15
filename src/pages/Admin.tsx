@@ -34,11 +34,6 @@ import { useToast } from "../components/admin/Toast";
 import WholesaleTab from "../components/admin/WholesaleTab";
 import OffersTab from "../components/admin/OffersTab";
 
-import { ADMIN_EMAIL, ADMIN_PASS } from "../config/admin";
-import { checkRateLimit, recordSuccess, sanitize } from "../utils/security";
-
-const ADMIN_KEY = "odoya_admin_auth_v2";
-const RATE_KEY = "admin_login";
 
 type Tab = "dash" | "prod" | "cat" | "users" | "fin" | "ship" | "pay" | "cfg" | "b2b" | "offers";
 
@@ -80,7 +75,7 @@ export default function Admin() {
   const offers = useOffers();
 
   const activity = useActivity();
-  const [authed, setAuthed] = useState(() => sessionStorage.getItem(ADMIN_KEY) === "1");
+  const [authed, setAuthed] = useState(false);
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
   const [showPass, setShowPass] = useState(false);
@@ -88,6 +83,13 @@ export default function Admin() {
   const [lockUntil, setLockUntil] = useState<number | null>(null);
   const [attemptsLeft, setAttemptsLeft] = useState<number | null>(null);
   const [remaining, setRemaining] = useState(0);
+
+  useEffect(() => {
+    void fetch("/api/auth/me", { credentials: "same-origin" })
+      .then((response) => response.ok ? response.json() : { admin: false })
+      .then((body: { admin?: boolean }) => setAuthed(body.admin === true))
+      .catch(() => setAuthed(false));
+  }, []);
 
   // Timer decrescente ao vivo quando o login está bloqueado
   useEffect(() => {
@@ -304,19 +306,14 @@ export default function Admin() {
     return { receitaBruta, custoProdutosVendidos, despesasOperacionais, despesasTotal, lucroBruto, lucroLiquido, margem, porCategoria, despesasCount: despesasPeriodo.length, produtosSemCusto: Array.from(produtosSemCusto) };
   }, [fin.vendas, fin.despesas, finPeriod, store.products]);
 
-  const login = (e: React.FormEvent) => {
+  const login = async (e: React.FormEvent) => {
     e.preventDefault();
-    const rate = checkRateLimit(RATE_KEY, { maxAttempts: 5, windowMs: 60_000, lockMs: 120_000 });
-    if (!rate.allowed) {
-      setLockUntil(Date.now() + rate.retryInSec * 1000);
-      setAttemptsLeft(0);
-      return;
-    }
-    const safeEmail = sanitize(email).toLowerCase();
-    const safePass = pass.trim();
-    if (safeEmail === ADMIN_EMAIL.toLowerCase() && safePass === ADMIN_PASS) {
-      sessionStorage.setItem(ADMIN_KEY, "1");
-      recordSuccess(RATE_KEY);
+    try {
+      const response = await fetch("/api/auth/admin-login", {
+        method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password: pass }),
+      });
+      if (response.ok) {
       activity.log("login", "Acesso ao painel", `IP local · ${new Date().toLocaleString("pt-BR")}`);
       toast.success("Acesso liberado", "Painel administrativo carregado.");
       setAuthed(true);
@@ -325,21 +322,17 @@ export default function Admin() {
       setAttemptsLeft(null);
       setEmail("");
       setPass("");
-    } else {
-      // Tenta adivinhar quantas tentativas restam pela contagem do rate limiter
-      const probe = checkRateLimit(RATE_KEY, { maxAttempts: 5, windowMs: 60_000, lockMs: 120_000 });
-      const left = probe.allowed ? 5 - 1 : 0;
-      setAttemptsLeft(Math.max(0, left));
-      setLoginErr(
-        left > 0
-          ? `E-mail ou senha incorretos. ${left} tentativa${left === 1 ? "" : "s"} restante${left === 1 ? "" : "s"}.`
-          : "Muitas tentativas. Aguarde o bloqueio expirar."
-      );
+      } else {
+        const body = await response.json().catch(() => null) as { error?: string } | null;
+        setLoginErr(body?.error ?? "Não foi possível iniciar a sessão.");
+      }
+    } catch {
+      setLoginErr("Não foi possível conectar ao servidor.");
     }
   };
-  const logout = () => {
+  const logout = async () => {
     activity.log("logout", "Saída do painel");
-    sessionStorage.removeItem(ADMIN_KEY);
+    await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }).catch(() => undefined);
     setAuthed(false);
   };
 

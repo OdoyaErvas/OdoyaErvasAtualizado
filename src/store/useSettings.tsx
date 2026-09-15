@@ -1,4 +1,5 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
+import { useRemoteState } from "../data/remoteState";
 
 export type PaymentMethod = {
   id: string;
@@ -60,12 +61,7 @@ type SettingsState = {
 
 const Ctx = createContext<SettingsState | null>(null);
 
-const LS_PAY = "odoya_payments_v1";
-const LS_BANNER = "odoya_banner_v1";
-const LS_PIX = "odoya_pix_v1";
-const LS_ABOUT = "odoya_about_v1";
-
-const SEED_PAYMENTS: PaymentMethod[] = [
+export const SEED_PAYMENTS: PaymentMethod[] = [
   { id: "pix", name: "PIX", icon: "⚡", description: "Aprovação imediata via chave PIX.", discount: "5% off", featured: true, enabled: true },
   { id: "cartao", name: "Cartão de Crédito", icon: "💳", description: "Visa, Mastercard, Elo, Hipercard.", installments: "Até 3x sem juros", enabled: true },
   { id: "boleto", name: "Boleto Bancário", icon: "🧾", description: "Compensação em 1 a 3 dias úteis.", enabled: true },
@@ -73,13 +69,12 @@ const SEED_PAYMENTS: PaymentMethod[] = [
   { id: "transferencia", name: "Transferência Bancária", icon: "🏦", description: "TED/DOC para conta cadastrada.", enabled: false },
 ];
 
-const SEED_BANNER: SiteBanner = {
+export const SEED_BANNER: SiteBanner = {
   enabled: true,
   text: "🚚 Frete grátis nas compras acima de R$ 199 · Enviamos para todo o Brasil",
 };
 
-const LS_CONFIG = "odoya_store_config_v1";
-const SEED_CONFIG: StoreConfig = {
+export const SEED_CONFIG: StoreConfig = {
   storeName: "Odoyá Ervas de Aruanda",
   ownerName: "Jéssica Oliveira",
   city: "Barretos",
@@ -99,41 +94,18 @@ const SEED_CONFIG: StoreConfig = {
   ritualOfDayEnabled: true,
 };
 
-function load<T>(k: string, f: T): T {
-  try {
-    const r = localStorage.getItem(k);
-    return r ? JSON.parse(r) : f;
-  } catch {
-    return f;
-  }
-}
-
 export function SettingsProvider({ children }: { children: ReactNode }) {
-  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>(() => load(LS_PAY, SEED_PAYMENTS));
-  const [banner, setBanner] = useState<SiteBanner>(() => load(LS_BANNER, SEED_BANNER));
-  const [pixKey, setPixKey] = useState<string>(() => load(LS_PIX, "odoyaervasdearuanda@gmail.com"));
-  const [aboutText, setAboutText] = useState<string>(() =>
-    load(
-      LS_ABOUT,
-      "A Odoyá Ervas de Aruanda é uma incensaria artesanal criada em Barretos-SP por Jéssica Oliveira. Cada incenso, banho e defumação é preparado à mão, com ervas selecionadas, fé e propósito. Enviamos para todo o Brasil."
-    )
-  );
-  const [storeConfig, setStoreConfigState] = useState<StoreConfig>(() => {
-    const saved = load<Partial<StoreConfig>>(LS_CONFIG, {});
-    // Migração silenciosa da grafia anterior do e-mail da marca.
-    if (saved.email === "odayaervasdearuanda@gmail.com") {
-      saved.email = "odoyaervasdearuanda@gmail.com";
-    }
-    return { ...SEED_CONFIG, ...saved };
-  });
-
-  useEffect(() => localStorage.setItem(LS_PAY, JSON.stringify(paymentMethods)), [paymentMethods]);
-  useEffect(() => localStorage.setItem(LS_BANNER, JSON.stringify(banner)), [banner]);
-  useEffect(() => localStorage.setItem(LS_PIX, JSON.stringify(pixKey)), [pixKey]);
-  useEffect(() => localStorage.setItem(LS_ABOUT, JSON.stringify(aboutText)), [aboutText]);
-  useEffect(() => localStorage.setItem(LS_CONFIG, JSON.stringify(storeConfig)), [storeConfig]);
-
-  const setStoreConfig = (patch: Partial<StoreConfig>) => setStoreConfigState((prev) => ({ ...prev, ...patch }));
+  const remote = useRemoteState("settings", {
+    paymentMethods: SEED_PAYMENTS, banner: SEED_BANNER, pixKey: "odoyaervasdearuanda@gmail.com",
+    aboutText: "A Odoyá Ervas de Aruanda é uma incensaria artesanal criada em Barretos-SP por Jéssica Oliveira. Cada incenso, banho e defumação é preparado à mão, com ervas selecionadas, fé e propósito. Enviamos para todo o Brasil.",
+    storeConfig: SEED_CONFIG,
+  }, { poll: true });
+  const { paymentMethods, banner, pixKey, aboutText, storeConfig } = remote.value;
+  const setPaymentMethods = (update: (previous: PaymentMethod[]) => PaymentMethod[]) => remote.setValue((previous) => ({ ...previous, paymentMethods: update(previous.paymentMethods) }));
+  const setBanner = (banner: SiteBanner) => remote.setValue((previous) => ({ ...previous, banner }));
+  const setPixKey = (pixKey: string) => remote.setValue((previous) => ({ ...previous, pixKey }));
+  const setAboutText = (aboutText: string) => remote.setValue((previous) => ({ ...previous, aboutText }));
+  const setStoreConfig = (patch: Partial<StoreConfig>) => remote.setValue((previous) => ({ ...previous, storeConfig: { ...previous.storeConfig, ...patch } }));
 
   const addPayment: SettingsState["addPayment"] = (p) => setPaymentMethods((prev) => [...prev, { ...p, id: "pay-" + Date.now().toString(36) }]);
   const updatePayment: SettingsState["updatePayment"] = (p) => setPaymentMethods((prev) => prev.map((x) => (x.id === p.id ? p : x)));
