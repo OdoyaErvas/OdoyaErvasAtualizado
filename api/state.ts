@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { db, fail, getSession, sameOrigin } from "./_lib/server.js";
 
-const KEYS = new Set(["catalog", "settings", "offers", "reviews", "finance", "shipments", "activity"]);
+const KEYS = new Set(["catalog", "settings", "offers", "reviews", "finance", "shipments", "activity", "wholesale"]);
 const PUBLIC_READ = new Set(["catalog", "settings", "offers", "reviews"]);
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

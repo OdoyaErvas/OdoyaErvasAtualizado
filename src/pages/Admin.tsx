@@ -34,6 +34,11 @@ import { useToast } from "../components/admin/Toast";
 import WholesaleTab from "../components/admin/WholesaleTab";
 import OffersTab from "../components/admin/OffersTab";
 
+import { ADMIN_EMAIL, ADMIN_PASS } from "../config/admin";
+import { checkRateLimit, recordSuccess, sanitize } from "../utils/security";
+
+const ADMIN_KEY = "odoya_admin_auth_v2";
+const RATE_KEY = "admin_login";
 
 type Tab = "dash" | "prod" | "cat" | "users" | "fin" | "ship" | "pay" | "cfg" | "b2b" | "offers";
 
@@ -75,7 +80,7 @@ export default function Admin() {
   const offers = useOffers();
 
   const activity = useActivity();
-  const [authed, setAuthed] = useState(false);
+  const [authed, setAuthed] = useState(() => sessionStorage.getItem(ADMIN_KEY) === "1");
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
   const [showPass, setShowPass] = useState(false);
@@ -83,13 +88,6 @@ export default function Admin() {
   const [lockUntil, setLockUntil] = useState<number | null>(null);
   const [attemptsLeft, setAttemptsLeft] = useState<number | null>(null);
   const [remaining, setRemaining] = useState(0);
-
-  useEffect(() => {
-    void fetch("/api/auth/me", { credentials: "same-origin" })
-      .then((response) => response.ok ? response.json() : { admin: false })
-      .then((body: { admin?: boolean }) => setAuthed(body.admin === true))
-      .catch(() => setAuthed(false));
-  }, []);
 
   // Timer decrescente ao vivo quando o login está bloqueado
   useEffect(() => {
@@ -307,34 +305,103 @@ export default function Admin() {
   }, [fin.vendas, fin.despesas, finPeriod, store.products]);
 
   const login = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const response = await fetch("/api/auth/admin-login", {
-        method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password: pass }),
-      });
-      if (response.ok) {
-      activity.log("login", "Acesso ao painel", `IP local · ${new Date().toLocaleString("pt-BR")}`);
-      toast.success("Acesso liberado", "Painel administrativo carregado.");
-      setAuthed(true);
-      setLoginErr("");
-      setLockUntil(null);
+  e.preventDefault();
+
+  const rate = checkRateLimit(RATE_KEY, {
+    maxAttempts: 5,
+    windowMs: 60_000,
+    lockMs: 120_000,
+  });
+
+  if (!rate.allowed) {
+    setLockUntil(Date.now() + rate.retryInSec * 1000);
+    setAttemptsLeft(0);
+    return;
+  }
+
+  const safeEmail = sanitize(email).toLowerCase();
+  const safePass = pass.trim();
+
+  try {
+    const response = await fetch("/api/auth/admin-login", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        email: safeEmail,
+        password: safePass,
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+
+      const message =
+        typeof body?.error === "string"
+          ? body.error
+          : "E-mail ou senha incorretos.";
+
+      setLoginErr(message);
       setAttemptsLeft(null);
-      setEmail("");
-      setPass("");
-      } else {
-        const body = await response.json().catch(() => null) as { error?: string } | null;
-        setLoginErr(body?.error ?? "Não foi possível iniciar a sessão.");
-      }
-    } catch {
-      setLoginErr("Não foi possível conectar ao servidor.");
+      return;
     }
-  };
-  const logout = async () => {
-    activity.log("logout", "Saída do painel");
-    await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }).catch(() => undefined);
-    setAuthed(false);
-  };
+
+    const sessionResponse = await fetch("/api/auth/me", {
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+
+    const session = await sessionResponse.json().catch(() => null);
+
+    if (!sessionResponse.ok || session?.admin !== true) {
+      throw new Error("Sessão administrativa não foi confirmada.");
+    }
+
+    recordSuccess(RATE_KEY);
+    sessionStorage.setItem(ADMIN_KEY, "1");
+
+    activity.log(
+      "login",
+      "Acesso ao painel",
+      `Sessão administrativa · ${new Date().toLocaleString("pt-BR")}`,
+    );
+
+    toast.success(
+      "Acesso liberado",
+      "Painel administrativo carregado.",
+    );
+
+    setAuthed(true);
+    setLoginErr("");
+    setLockUntil(null);
+    setAttemptsLeft(null);
+    setEmail("");
+    setPass("");
+  } catch (error) {
+    console.error("[admin-login]", error);
+
+    setLoginErr(
+      "Não foi possível validar o acesso. Verifique a conexão e tente novamente.",
+    );
+  }
+};
+
+const logout = async () => {
+  try {
+    await fetch("/api/auth/logout", {
+      method: "POST",
+      credentials: "same-origin",
+    });
+  } catch (error) {
+    console.error("[admin-logout]", error);
+  }
+
+  activity.log("logout", "Saída do painel");
+  sessionStorage.removeItem(ADMIN_KEY);
+  setAuthed(false);
+};
 
   if (!authed) {
     return (

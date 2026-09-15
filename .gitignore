@@ -2,8 +2,10 @@ node_modules
 dist
 .env
 .env.local
-.env.*
-!.env.example
 .vercel
 .DS_Store
-pnpm-debug.log*
+
+# Backups locais do projeto
+*.backup
+*.backup-*
+*.bak

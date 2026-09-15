@@ -39,6 +39,14 @@ export type StoreConfig = {
   ritualOfDayEnabled: boolean;
 };
 
+type SettingsData = {
+  paymentMethods: PaymentMethod[];
+  banner: SiteBanner;
+  pixKey: string;
+  aboutText: string;
+  storeConfig: StoreConfig;
+};
+
 type SettingsState = {
   paymentMethods: PaymentMethod[];
   addPayment: (p: Omit<PaymentMethod, "id">) => void;
@@ -62,11 +70,44 @@ type SettingsState = {
 const Ctx = createContext<SettingsState | null>(null);
 
 export const SEED_PAYMENTS: PaymentMethod[] = [
-  { id: "pix", name: "PIX", icon: "⚡", description: "Aprovação imediata via chave PIX.", discount: "5% off", featured: true, enabled: true },
-  { id: "cartao", name: "Cartão de Crédito", icon: "💳", description: "Visa, Mastercard, Elo, Hipercard.", installments: "Até 3x sem juros", enabled: true },
-  { id: "boleto", name: "Boleto Bancário", icon: "🧾", description: "Compensação em 1 a 3 dias úteis.", enabled: true },
-  { id: "dinheiro", name: "Dinheiro (retirada)", icon: "💵", description: "Pagamento na retirada no ateliê em Barretos.", enabled: true },
-  { id: "transferencia", name: "Transferência Bancária", icon: "🏦", description: "TED/DOC para conta cadastrada.", enabled: false },
+  {
+    id: "pix",
+    name: "PIX",
+    icon: "⚡",
+    description: "Aprovação imediata via chave PIX.",
+    discount: "5% off",
+    featured: true,
+    enabled: true,
+  },
+  {
+    id: "cartao",
+    name: "Cartão de Crédito",
+    icon: "💳",
+    description: "Visa, Mastercard, Elo, Hipercard.",
+    installments: "Até 3x sem juros",
+    enabled: true,
+  },
+  {
+    id: "boleto",
+    name: "Boleto Bancário",
+    icon: "🧾",
+    description: "Compensação em 1 a 3 dias úteis.",
+    enabled: true,
+  },
+  {
+    id: "dinheiro",
+    name: "Dinheiro (retirada)",
+    icon: "💵",
+    description: "Pagamento na retirada no ateliê em Barretos.",
+    enabled: true,
+  },
+  {
+    id: "transferencia",
+    name: "Transferência Bancária",
+    icon: "🏦",
+    description: "TED/DOC para conta cadastrada.",
+    enabled: false,
+  },
 ];
 
 export const SEED_BANNER: SiteBanner = {
@@ -86,7 +127,8 @@ export const SEED_CONFIG: StoreConfig = {
   businessHours: "Seg a Sex · 9h às 18h\nSáb · 9h às 13h",
   shippingDays: "Despachamos em até 1 dia útil após confirmação.",
   freeShippingThreshold: 199,
-  welcomeMessage: "Olá! Que bom ter você por aqui 🌿 Como posso te ajudar a escolher a composição ideal hoje?",
+  welcomeMessage:
+    "Olá! Que bom ter você por aqui 🌿 Como posso te ajudar a escolher a composição ideal hoje?",
   instagramFeed: true,
   testimonialsEnabled: true,
   monthlyGoal: 8000,
@@ -94,37 +136,186 @@ export const SEED_CONFIG: StoreConfig = {
   ritualOfDayEnabled: true,
 };
 
-export function SettingsProvider({ children }: { children: ReactNode }) {
-  const remote = useRemoteState("settings", {
-    paymentMethods: SEED_PAYMENTS, banner: SEED_BANNER, pixKey: "odoyaervasdearuanda@gmail.com",
-    aboutText: "A Odoyá Ervas de Aruanda é uma incensaria artesanal criada em Barretos-SP por Jéssica Oliveira. Cada incenso, banho e defumação é preparado à mão, com ervas selecionadas, fé e propósito. Enviamos para todo o Brasil.",
-    storeConfig: SEED_CONFIG,
-  }, { poll: true });
-  const { paymentMethods, banner, pixKey, aboutText, storeConfig } = remote.value;
-  const setPaymentMethods = (update: (previous: PaymentMethod[]) => PaymentMethod[]) => remote.setValue((previous) => ({ ...previous, paymentMethods: update(previous.paymentMethods) }));
-  const setBanner = (banner: SiteBanner) => remote.setValue((previous) => ({ ...previous, banner }));
-  const setPixKey = (pixKey: string) => remote.setValue((previous) => ({ ...previous, pixKey }));
-  const setAboutText = (aboutText: string) => remote.setValue((previous) => ({ ...previous, aboutText }));
-  const setStoreConfig = (patch: Partial<StoreConfig>) => remote.setValue((previous) => ({ ...previous, storeConfig: { ...previous.storeConfig, ...patch } }));
+const SEED_SETTINGS: SettingsData = {
+  paymentMethods: SEED_PAYMENTS,
+  banner: SEED_BANNER,
+  pixKey: "odoyaervasdearuanda@gmail.com",
+  aboutText:
+    "A Odoyá Ervas de Aruanda é uma incensaria artesanal criada em Barretos-SP por Jéssica Oliveira. Cada incenso, banho e defumação é preparado à mão, com ervas selecionadas, fé e propósito. Enviamos para todo o Brasil.",
+  storeConfig: SEED_CONFIG,
+};
 
-  const addPayment: SettingsState["addPayment"] = (p) => setPaymentMethods((prev) => [...prev, { ...p, id: "pay-" + Date.now().toString(36) }]);
-  const updatePayment: SettingsState["updatePayment"] = (p) => setPaymentMethods((prev) => prev.map((x) => (x.id === p.id ? p : x)));
-  const deletePayment: SettingsState["deletePayment"] = (id) => setPaymentMethods((prev) => prev.filter((x) => x.id !== id));
+function migrateSettings(raw: unknown): SettingsData {
+  if (!raw || typeof raw !== "object") {
+    return SEED_SETTINGS;
+  }
+
+  const data = raw as Partial<SettingsData>;
+
+  const paymentMethods = Array.isArray(data.paymentMethods)
+    ? data.paymentMethods.filter(
+        (payment): payment is PaymentMethod =>
+          Boolean(
+            payment &&
+              typeof payment === "object" &&
+              typeof (payment as PaymentMethod).id === "string" &&
+              typeof (payment as PaymentMethod).name === "string"
+          )
+      )
+    : SEED_PAYMENTS;
+
+  const banner: SiteBanner = {
+    ...SEED_BANNER,
+    ...(data.banner && typeof data.banner === "object"
+      ? data.banner
+      : {}),
+  };
+
+  const storeConfig: StoreConfig = {
+    ...SEED_CONFIG,
+    ...(data.storeConfig && typeof data.storeConfig === "object"
+      ? data.storeConfig
+      : {}),
+  };
+
+  // Migração silenciosa da grafia anterior do e-mail da marca.
+  if (storeConfig.email === "odayaervasdearuanda@gmail.com") {
+    storeConfig.email = "odoyaervasdearuanda@gmail.com";
+  }
+
+  return {
+    paymentMethods:
+      paymentMethods.length > 0 ? paymentMethods : SEED_PAYMENTS,
+    banner,
+    pixKey:
+      typeof data.pixKey === "string"
+        ? data.pixKey
+        : SEED_SETTINGS.pixKey,
+    aboutText:
+      typeof data.aboutText === "string"
+        ? data.aboutText
+        : SEED_SETTINGS.aboutText,
+    storeConfig,
+  };
+}
+
+export function SettingsProvider({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  const remote = useRemoteState<SettingsData>(
+    "settings",
+    SEED_SETTINGS,
+    { poll: true }
+  );
+
+  const settings = migrateSettings(remote.value);
+
+  const setSettings = (
+    update: (previous: SettingsData) => SettingsData
+  ) => {
+    remote.setValue((previous) =>
+      migrateSettings(update(migrateSettings(previous)))
+    );
+  };
+
+  const setPaymentMethods = (
+    update: (previous: PaymentMethod[]) => PaymentMethod[]
+  ) => {
+    setSettings((previous) => ({
+      ...previous,
+      paymentMethods: update(previous.paymentMethods),
+    }));
+  };
+
+  const setBanner = (banner: SiteBanner) => {
+    setSettings((previous) => ({
+      ...previous,
+      banner,
+    }));
+  };
+
+  const setPixKey = (pixKey: string) => {
+    setSettings((previous) => ({
+      ...previous,
+      pixKey,
+    }));
+  };
+
+  const setAboutText = (aboutText: string) => {
+    setSettings((previous) => ({
+      ...previous,
+      aboutText,
+    }));
+  };
+
+  const setStoreConfig = (patch: Partial<StoreConfig>) => {
+    setSettings((previous) => ({
+      ...previous,
+      storeConfig: {
+        ...previous.storeConfig,
+        ...patch,
+      },
+    }));
+  };
+
+  const addPayment: SettingsState["addPayment"] = (payment) => {
+    setPaymentMethods((previous) => [
+      ...previous,
+      {
+        ...payment,
+        id: `pay-${Date.now().toString(36)}`,
+      },
+    ]);
+  };
+
+  const updatePayment: SettingsState["updatePayment"] = (payment) => {
+    setPaymentMethods((previous) =>
+      previous.map((item) =>
+        item.id === payment.id ? payment : item
+      )
+    );
+  };
+
+  const deletePayment: SettingsState["deletePayment"] = (id) => {
+    setPaymentMethods((previous) =>
+      previous.filter((item) => item.id !== id)
+    );
+  };
+
   const reorderPayments: SettingsState["reorderPayments"] = (ids) => {
-    setPaymentMethods((prev) => {
-      const map = new Map(prev.map((p) => [p.id, p]));
-      return ids.map((id) => map.get(id)!).filter(Boolean);
+    setPaymentMethods((previous) => {
+      const map = new Map(
+        previous.map((payment) => [payment.id, payment])
+      );
+
+      return ids
+        .map((id) => map.get(id))
+        .filter((payment): payment is PaymentMethod => Boolean(payment));
     });
   };
 
   return (
     <Ctx.Provider
       value={{
-        paymentMethods, addPayment, updatePayment, deletePayment, reorderPayments,
-        banner, setBanner,
-        pixKey, setPixKey,
-        aboutText, setAboutText,
-        storeConfig, setStoreConfig,
+        paymentMethods: settings.paymentMethods,
+        addPayment,
+        updatePayment,
+        deletePayment,
+        reorderPayments,
+
+        banner: settings.banner,
+        setBanner,
+
+        pixKey: settings.pixKey,
+        setPixKey,
+
+        aboutText: settings.aboutText,
+        setAboutText,
+
+        storeConfig: settings.storeConfig,
+        setStoreConfig,
       }}
     >
       {children}
@@ -133,7 +324,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 }
 
 export function useSettings() {
-  const c = useContext(Ctx);
-  if (!c) throw new Error("useSettings must be inside SettingsProvider");
-  return c;
+  const context = useContext(Ctx);
+
+  if (!context) {
+    throw new Error("useSettings must be inside SettingsProvider");
+  }
+
+  return context;
 }
