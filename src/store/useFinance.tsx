@@ -1,4 +1,5 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
+import { useRemoteState } from "../data/remoteState";
 
 export type Venda = {
   id: string;
@@ -9,7 +10,7 @@ export type Venda = {
   valor: number;
   status: "pendente" | "aprovado" | "enviado" | "concluido" | "cancelado";
   pagamento: "pix" | "boleto" | "dinheiro" | "cartao" | "outro";
-  data: string; // ISO
+  data: string;
   observacoes?: string;
 };
 
@@ -39,11 +40,16 @@ export type Despesa = {
   descricao: string;
   categoria: DespesaCategoria;
   valor: number;
-  data: string; // ISO
+  data: string;
   fornecedor?: string;
   pagamento: "pix" | "boleto" | "dinheiro" | "cartao" | "outro";
   recorrente?: boolean;
   observacoes?: string;
+};
+
+type FinanceState = {
+  vendas: Venda[];
+  despesas: Despesa[];
 };
 
 type FinCtx = {
@@ -60,78 +66,234 @@ type FinCtx = {
   resetDespesas: () => void;
 };
 
-// Chaves versionadas: o projeto agora começa do zero, sem dados fictícios.
-const LS_KEY = "odoya_vendas_v2";
-const LS_KEY_DESPESAS = "odoya_despesas_v1";
 const Ctx = createContext<FinCtx | null>(null);
 
-function load<T>(k: string, f: T): T { try { const r = localStorage.getItem(k); return r ? JSON.parse(r) : f; } catch { return f; } }
-
-// A operação real começa agora — nenhuma venda ou despesa de exemplo.
 const SEED_VENDAS: Venda[] = [];
 const SEED_DESPESAS: Despesa[] = [];
 
-function migrateVendas(raw: any[]): Venda[] {
+function migrateVendas(raw: unknown): Venda[] {
   if (!Array.isArray(raw)) return SEED_VENDAS;
+
   return raw
     .filter((v) => v && typeof v === "object")
-    .map((v) => ({
-      id: v.id ?? "v_" + Math.random().toString(36).slice(2, 8),
-      clienteNome: typeof v.clienteNome === "string" ? v.clienteNome : "Cliente",
-      clienteEmail: typeof v.clienteEmail === "string" ? v.clienteEmail : undefined,
-      produto: typeof v.produto === "string" ? v.produto : "Produto",
-      quantidade: typeof v.quantidade === "number" && v.quantidade > 0 ? v.quantidade : 1,
-      valor: typeof v.valor === "number" && !isNaN(v.valor) ? v.valor : 0,
-      status: (["pendente", "aprovado", "enviado", "concluido", "cancelado"].includes(v.status) ? v.status : "pendente") as Venda["status"],
-      pagamento: (["pix", "boleto", "dinheiro", "cartao", "outro"].includes(v.pagamento) ? v.pagamento : "pix") as Venda["pagamento"],
-      data: typeof v.data === "string" && !isNaN(Date.parse(v.data)) ? v.data : new Date().toISOString(),
-      observacoes: typeof v.observacoes === "string" ? v.observacoes : undefined,
+    .map((v: any) => ({
+      id: typeof v.id === "string"
+        ? v.id
+        : "v_" + Math.random().toString(36).slice(2, 8),
+
+      clienteNome:
+        typeof v.clienteNome === "string" ? v.clienteNome : "Cliente",
+
+      clienteEmail:
+        typeof v.clienteEmail === "string" ? v.clienteEmail : undefined,
+
+      produto:
+        typeof v.produto === "string" ? v.produto : "Produto",
+
+      quantidade:
+        typeof v.quantidade === "number" && v.quantidade > 0
+          ? v.quantidade
+          : 1,
+
+      valor:
+        typeof v.valor === "number" && !Number.isNaN(v.valor)
+          ? v.valor
+          : 0,
+
+      status: (
+        [
+          "pendente",
+          "aprovado",
+          "enviado",
+          "concluido",
+          "cancelado",
+        ].includes(v.status)
+          ? v.status
+          : "pendente"
+      ) as Venda["status"],
+
+      pagamento: (
+        ["pix", "boleto", "dinheiro", "cartao", "outro"].includes(v.pagamento)
+          ? v.pagamento
+          : "pix"
+      ) as Venda["pagamento"],
+
+      data:
+        typeof v.data === "string" && !Number.isNaN(Date.parse(v.data))
+          ? v.data
+          : new Date().toISOString(),
+
+      observacoes:
+        typeof v.observacoes === "string"
+          ? v.observacoes
+          : undefined,
     }));
 }
 
-function migrateDespesas(raw: any[]): Despesa[] {
+function migrateDespesas(raw: unknown): Despesa[] {
   if (!Array.isArray(raw)) return SEED_DESPESAS;
+
   return raw
     .filter((d) => d && typeof d === "object")
-    .map((d) => ({
-      id: d.id ?? "d_" + Math.random().toString(36).slice(2, 8),
-      descricao: typeof d.descricao === "string" ? d.descricao : "Despesa",
-      categoria: (DESPESA_CATEGORIAS.includes(d.categoria) ? d.categoria : "Outros") as DespesaCategoria,
-      valor: typeof d.valor === "number" && !isNaN(d.valor) ? d.valor : 0,
-      data: typeof d.data === "string" && !isNaN(Date.parse(d.data)) ? d.data : new Date().toISOString(),
-      fornecedor: typeof d.fornecedor === "string" ? d.fornecedor : undefined,
-      pagamento: (["pix", "boleto", "dinheiro", "cartao", "outro"].includes(d.pagamento) ? d.pagamento : "pix") as Despesa["pagamento"],
+    .map((d: any) => ({
+      id: typeof d.id === "string"
+        ? d.id
+        : "d_" + Math.random().toString(36).slice(2, 8),
+
+      descricao:
+        typeof d.descricao === "string" ? d.descricao : "Despesa",
+
+      categoria: (
+        DESPESA_CATEGORIAS.includes(d.categoria)
+          ? d.categoria
+          : "Outros"
+      ) as DespesaCategoria,
+
+      valor:
+        typeof d.valor === "number" && !Number.isNaN(d.valor)
+          ? d.valor
+          : 0,
+
+      data:
+        typeof d.data === "string" && !Number.isNaN(Date.parse(d.data))
+          ? d.data
+          : new Date().toISOString(),
+
+      fornecedor:
+        typeof d.fornecedor === "string"
+          ? d.fornecedor
+          : undefined,
+
+      pagamento: (
+        ["pix", "boleto", "dinheiro", "cartao", "outro"].includes(d.pagamento)
+          ? d.pagamento
+          : "pix"
+      ) as Despesa["pagamento"],
+
       recorrente: !!d.recorrente,
-      observacoes: typeof d.observacoes === "string" ? d.observacoes : undefined,
+
+      observacoes:
+        typeof d.observacoes === "string"
+          ? d.observacoes
+          : undefined,
     }));
 }
 
 export function FinanceProvider({ children }: { children: ReactNode }) {
-  const [vendas, setVendas] = useState<Venda[]>(() => migrateVendas(load<any[]>(LS_KEY, SEED_VENDAS)));
-  const [despesas, setDespesas] = useState<Despesa[]>(() => migrateDespesas(load<any[]>(LS_KEY_DESPESAS, SEED_DESPESAS)));
+  const remote = useRemoteState<FinanceState>(
+    "finance",
+    {
+      vendas: SEED_VENDAS,
+      despesas: SEED_DESPESAS,
+    },
+    { poll: true }
+  );
 
-  useEffect(() => { localStorage.setItem(LS_KEY, JSON.stringify(vendas)); }, [vendas]);
-  useEffect(() => { localStorage.setItem(LS_KEY_DESPESAS, JSON.stringify(despesas)); }, [despesas]);
+  const vendas = migrateVendas(remote.value.vendas);
+  const despesas = migrateDespesas(remote.value.despesas);
 
-  const addVenda: FinCtx["addVenda"] = (v) => setVendas((p) => [{ ...v, id: "v_" + Date.now().toString(36) }, ...p]);
-  const updateVenda: FinCtx["updateVenda"] = (v) => setVendas((p) => p.map((x) => x.id === v.id ? v : x));
-  const deleteVenda: FinCtx["deleteVenda"] = (id) => setVendas((p) => p.filter((x) => x.id !== id));
-  const reset = () => setVendas(SEED_VENDAS);
+  const setVendas = (updater: (previous: Venda[]) => Venda[]) => {
+    remote.setValue((previous) => ({
+      ...previous,
+      vendas: updater(migrateVendas(previous.vendas)),
+    }));
+  };
 
-  const addDespesa: FinCtx["addDespesa"] = (d) => setDespesas((p) => [{ ...d, id: "d_" + Date.now().toString(36) }, ...p]);
-  const updateDespesa: FinCtx["updateDespesa"] = (d) => setDespesas((p) => p.map((x) => x.id === d.id ? d : x));
-  const deleteDespesa: FinCtx["deleteDespesa"] = (id) => setDespesas((p) => p.filter((x) => x.id !== id));
-  const resetDespesas = () => setDespesas(SEED_DESPESAS);
+  const setDespesas = (updater: (previous: Despesa[]) => Despesa[]) => {
+    remote.setValue((previous) => ({
+      ...previous,
+      despesas: updater(migrateDespesas(previous.despesas)),
+    }));
+  };
+
+  const addVenda: FinCtx["addVenda"] = (v) => {
+    setVendas((previous) => [
+      {
+        ...v,
+        id: "v_" + Date.now().toString(36),
+      },
+      ...previous,
+    ]);
+  };
+
+  const updateVenda: FinCtx["updateVenda"] = (v) => {
+    setVendas((previous) =>
+      previous.map((item) =>
+        item.id === v.id ? v : item
+      )
+    );
+  };
+
+  const deleteVenda: FinCtx["deleteVenda"] = (id) => {
+    setVendas((previous) =>
+      previous.filter((item) => item.id !== id)
+    );
+  };
+
+  const reset = () => {
+    remote.setValue((previous) => ({
+      ...previous,
+      vendas: SEED_VENDAS,
+    }));
+  };
+
+  const addDespesa: FinCtx["addDespesa"] = (d) => {
+    setDespesas((previous) => [
+      {
+        ...d,
+        id: "d_" + Date.now().toString(36),
+      },
+      ...previous,
+    ]);
+  };
+
+  const updateDespesa: FinCtx["updateDespesa"] = (d) => {
+    setDespesas((previous) =>
+      previous.map((item) =>
+        item.id === d.id ? d : item
+      )
+    );
+  };
+
+  const deleteDespesa: FinCtx["deleteDespesa"] = (id) => {
+    setDespesas((previous) =>
+      previous.filter((item) => item.id !== id)
+    );
+  };
+
+  const resetDespesas = () => {
+    remote.setValue((previous) => ({
+      ...previous,
+      despesas: SEED_DESPESAS,
+    }));
+  };
 
   return (
-    <Ctx.Provider value={{ vendas, addVenda, updateVenda, deleteVenda, reset, despesas, addDespesa, updateDespesa, deleteDespesa, resetDespesas }}>
+    <Ctx.Provider
+      value={{
+        vendas,
+        addVenda,
+        updateVenda,
+        deleteVenda,
+        reset,
+        despesas,
+        addDespesa,
+        updateDespesa,
+        deleteDespesa,
+        resetDespesas,
+      }}
+    >
       {children}
     </Ctx.Provider>
   );
 }
 
 export function useFinance() {
-  const c = useContext(Ctx);
-  if (!c) throw new Error("useFinance must be inside provider");
-  return c;
+  const context = useContext(Ctx);
+
+  if (!context) {
+    throw new Error("useFinance must be inside provider");
+  }
+
+  return context;
 }
