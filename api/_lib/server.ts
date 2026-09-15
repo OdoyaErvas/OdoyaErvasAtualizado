@@ -1,5 +1,5 @@
 import { neon } from "@neondatabase/serverless";
-import { jwtVerify, SignJWT } from "jose";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 export type Session = { role: "admin" | "customer"; customerId?: string };
@@ -14,21 +14,29 @@ export function db() {
   return neon(required("DATABASE_URL"));
 }
 
-function sessionKey() {
-  return new TextEncoder().encode(required("SESSION_SECRET"));
-}
+function sessionKey() { return required("SESSION_SECRET"); }
+
+function encode(value: string) { return Buffer.from(value).toString("base64url"); }
+function decode(value: string) { return Buffer.from(value, "base64url").toString("utf8"); }
+function signature(payload: string) { return createHmac("sha256", sessionKey()).update(payload).digest("base64url"); }
 
 export async function createSession(session: Session) {
-  return new SignJWT(session).setProtectedHeader({ alg: "HS256" }).setIssuedAt().setExpirationTime("7d").sign(sessionKey());
+  const payload = encode(JSON.stringify({ ...session, expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000 }));
+  return `${payload}.${signature(payload)}`;
 }
 
 export async function getSession(req: VercelRequest): Promise<Session | null> {
   const token = req.cookies?.odoya_session;
   if (!token) return null;
   try {
-    const { payload } = await jwtVerify(token, sessionKey());
-    if (payload.role !== "admin" && payload.role !== "customer") return null;
-    return { role: payload.role, customerId: typeof payload.customerId === "string" ? payload.customerId : undefined };
+    const [payload, receivedSignature] = token.split(".");
+    if (!payload || !receivedSignature) return null;
+    const expectedSignature = signature(payload);
+    if (receivedSignature.length !== expectedSignature.length || !timingSafeEqual(Buffer.from(receivedSignature), Buffer.from(expectedSignature))) return null;
+    const parsed = JSON.parse(decode(payload)) as Session & { expiresAt?: number };
+    if (parsed.expiresAt == null || parsed.expiresAt < Date.now()) return null;
+    if (parsed.role !== "admin" && parsed.role !== "customer") return null;
+    return { role: parsed.role, customerId: typeof parsed.customerId === "string" ? parsed.customerId : undefined };
   } catch { return null; }
 }
 
