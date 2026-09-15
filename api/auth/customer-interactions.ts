@@ -1,4 +1,4 @@
-import type { VercelRequest, VercelResponse } from "@Vercel/node";
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 import {
   db,
   fail,

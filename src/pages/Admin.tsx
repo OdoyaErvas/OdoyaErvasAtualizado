@@ -304,44 +304,104 @@ export default function Admin() {
     return { receitaBruta, custoProdutosVendidos, despesasOperacionais, despesasTotal, lucroBruto, lucroLiquido, margem, porCategoria, despesasCount: despesasPeriodo.length, produtosSemCusto: Array.from(produtosSemCusto) };
   }, [fin.vendas, fin.despesas, finPeriod, store.products]);
 
-  const login = (e: React.FormEvent) => {
-    e.preventDefault();
-    const rate = checkRateLimit(RATE_KEY, { maxAttempts: 5, windowMs: 60_000, lockMs: 120_000 });
-    if (!rate.allowed) {
-      setLockUntil(Date.now() + rate.retryInSec * 1000);
-      setAttemptsLeft(0);
+  const login = async (e: React.FormEvent) => {
+  e.preventDefault();
+
+  const rate = checkRateLimit(RATE_KEY, {
+    maxAttempts: 5,
+    windowMs: 60_000,
+    lockMs: 120_000,
+  });
+
+  if (!rate.allowed) {
+    setLockUntil(Date.now() + rate.retryInSec * 1000);
+    setAttemptsLeft(0);
+    return;
+  }
+
+  const safeEmail = sanitize(email).toLowerCase();
+  const safePass = pass.trim();
+
+  try {
+    const response = await fetch("/api/auth/admin-login", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        email: safeEmail,
+        password: safePass,
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+
+      const message =
+        typeof body?.error === "string"
+          ? body.error
+          : "E-mail ou senha incorretos.";
+
+      setLoginErr(message);
+      setAttemptsLeft(null);
       return;
     }
-    const safeEmail = sanitize(email).toLowerCase();
-    const safePass = pass.trim();
-    if (safeEmail === ADMIN_EMAIL.toLowerCase() && safePass === ADMIN_PASS) {
-      sessionStorage.setItem(ADMIN_KEY, "1");
-      recordSuccess(RATE_KEY);
-      activity.log("login", "Acesso ao painel", `IP local · ${new Date().toLocaleString("pt-BR")}`);
-      toast.success("Acesso liberado", "Painel administrativo carregado.");
-      setAuthed(true);
-      setLoginErr("");
-      setLockUntil(null);
-      setAttemptsLeft(null);
-      setEmail("");
-      setPass("");
-    } else {
-      // Tenta adivinhar quantas tentativas restam pela contagem do rate limiter
-      const probe = checkRateLimit(RATE_KEY, { maxAttempts: 5, windowMs: 60_000, lockMs: 120_000 });
-      const left = probe.allowed ? 5 - 1 : 0;
-      setAttemptsLeft(Math.max(0, left));
-      setLoginErr(
-        left > 0
-          ? `E-mail ou senha incorretos. ${left} tentativa${left === 1 ? "" : "s"} restante${left === 1 ? "" : "s"}.`
-          : "Muitas tentativas. Aguarde o bloqueio expirar."
-      );
+
+    const sessionResponse = await fetch("/api/auth/me", {
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+
+    const session = await sessionResponse.json().catch(() => null);
+
+    if (!sessionResponse.ok || session?.admin !== true) {
+      throw new Error("Sessão administrativa não foi confirmada.");
     }
-  };
-  const logout = () => {
-    activity.log("logout", "Saída do painel");
-    sessionStorage.removeItem(ADMIN_KEY);
-    setAuthed(false);
-  };
+
+    recordSuccess(RATE_KEY);
+    sessionStorage.setItem(ADMIN_KEY, "1");
+
+    activity.log(
+      "login",
+      "Acesso ao painel",
+      `Sessão administrativa · ${new Date().toLocaleString("pt-BR")}`,
+    );
+
+    toast.success(
+      "Acesso liberado",
+      "Painel administrativo carregado.",
+    );
+
+    setAuthed(true);
+    setLoginErr("");
+    setLockUntil(null);
+    setAttemptsLeft(null);
+    setEmail("");
+    setPass("");
+  } catch (error) {
+    console.error("[admin-login]", error);
+
+    setLoginErr(
+      "Não foi possível validar o acesso. Verifique a conexão e tente novamente.",
+    );
+  }
+};
+
+const logout = async () => {
+  try {
+    await fetch("/api/auth/logout", {
+      method: "POST",
+      credentials: "same-origin",
+    });
+  } catch (error) {
+    console.error("[admin-logout]", error);
+  }
+
+  activity.log("logout", "Saída do painel");
+  sessionStorage.removeItem(ADMIN_KEY);
+  setAuthed(false);
+};
 
   if (!authed) {
     return (
