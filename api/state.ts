@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { db, fail, getSession, sameOrigin } from "./_lib/server";
+import { db, fail, getSession, sameOrigin } from "./_lib/server.js";
 
 const KEYS = new Set(["catalog", "settings", "offers", "reviews", "finance", "shipments", "activity"]);
 const PUBLIC_READ = new Set(["catalog", "settings", "offers", "reviews"]);

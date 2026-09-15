@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { createSession, fail, setSession } from "../_lib/server";
+import { createSession, fail, setSession } from "../_lib/server.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return res.setHeader("Allow", "POST").status(405).end();

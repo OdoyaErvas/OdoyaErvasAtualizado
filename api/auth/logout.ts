@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { clearSession } from "../_lib/server";
+import { clearSession } from "../_lib/server.js";
 
 export default function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return res.setHeader("Allow", "POST").status(405).end();
